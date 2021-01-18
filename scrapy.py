@@ -33,11 +33,25 @@ user_agent_rotator_apple = UserAgent(software_names=software_names_apple, operat
 user_agent_rotator_windows = UserAgent(software_names=software_names_windows, operating_systems=operating_systems_windows,popularity=popularity,software_types=software_types,hardware_types=hardware_types, limit=100)
 user_agent_rotator_linux = UserAgent(software_names=software_names_linux, operating_systems=operating_systems_linux,popularity=popularity,software_types=software_types,hardware_types=hardware_types, limit=100)
 
-proxy = "socks5://1080"
-http_proxy = "http://1080"
+
 
 PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
 DRIVER_BIN = os.path.join(PROJECT_ROOT, "chromedriver")
+
+street_name_abrv_map = {
+    "avenue":"ave",
+    "boulevard":"blvd",
+    "building":"bldg",
+    "court":"ct",
+    "crescent":"cres",
+    "drive":"dr",
+    "place":"pl",
+    "road":"rd",
+    "square":"sq",
+    "station":"stn",
+    "street":"st",
+    "terrace":"terr"
+}
 
 def get_proxies():
     url = 'https://free-proxy-list.net/'
@@ -68,6 +82,20 @@ def get_user_agent():
     return user_agent
 
 
+def get_streets(url,user_agent,proxy):
+    response = requests.get(url,proxies={"http": proxy, "https": proxy},headers={
+        'User-Agent': get_user_agent(),
+    })
+    parser = fromstring(response.text)
+    streets = set()
+    for street in parser.xpath('//ul/li/a/text()'):
+      print(street)
+      street_name = re.sub('\s+',' ',street).lower().replace(' ', '-')
+      for key, value in street_name_abrv_map.items():
+        street_name = street_name.replace("-" + key, "-" + value)
+      streets.add(street_name)
+    return streets
+
 
 def get_properties_in_street(url,user_agent,proxy):
     response = requests.get(url,proxies={"http": proxy, "https": proxy},headers={
@@ -80,7 +108,6 @@ def get_properties_in_street(url,user_agent,proxy):
     return properties
 
 def get_property_details(url,user_agent,proxy,final_data):
-    print(user_agent)
     options = webdriver.ChromeOptions()
     options.add_argument("start-maximized")
     options.add_argument("disable-infobars")
@@ -141,9 +168,13 @@ def get_property_details(url,user_agent,proxy,final_data):
 try:  
     # response = requests.get(url,proxies={"http": proxy, "https": proxy},headers=headers)
     # print(response.json())
-    properties = get_properties_in_street('https://www.realestate.com.au/vic/ringwood-east-3135/hilary-gr/',get_user_agent(),proxy)
     final_data = []
-    for property in properties:
+    for  street in get_streets("https://geographic.org/streetview/australia/vic/ringwood_east.html",get_user_agent(),proxy):
+     street_url = "https://www.realestate.com.au/vic/ringwood-east-3135/" + street
+     properties = get_properties_in_street(street_url,get_user_agent(),proxy)
+     if not  properties:
+         print("No porperties for :" + street_url)
+     for property in properties:
       get_property_details(property,get_user_agent(),proxy,final_data)
     
     labels = ['Short Address','Suburub', 'PostCode', 'State', 'Bedroom','Bathroom', 'Car spaces','Land size','Floor area','Year built','Sold time','Sold  price']
