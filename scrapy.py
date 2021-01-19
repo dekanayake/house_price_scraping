@@ -15,7 +15,17 @@ import time
 import re
 from io import StringIO, BytesIO
 import pandas as pd, numpy as np
+import traceback
+import codecs
+import logging
+from datetime import datetime
 
+logging.basicConfig(
+    filename='crawling.log',
+    format='%(asctime)s %(levelname)-8s %(message)s',
+    level=logging.INFO,
+    datefmt='%Y-%m-%d %H:%M:%S')
+logging.info('Crawling started')
 software_names_windows = [SoftwareName.CHROME.value,SoftwareName.FIREFOX.value,SoftwareName.EDGE.value,SoftwareName.OPERA.value]
 operating_systems_windows = [OperatingSystem.WINDOWS.value,OperatingSystem.WINDOWS_MOBILE.value,OperatingSystem.WINDOWS_PHONE.value] 
 
@@ -33,10 +43,11 @@ user_agent_rotator_apple = UserAgent(software_names=software_names_apple, operat
 user_agent_rotator_windows = UserAgent(software_names=software_names_windows, operating_systems=operating_systems_windows,popularity=popularity,software_types=software_types,hardware_types=hardware_types, limit=100)
 user_agent_rotator_linux = UserAgent(software_names=software_names_linux, operating_systems=operating_systems_linux,popularity=popularity,software_types=software_types,hardware_types=hardware_types, limit=100)
 
-
+proxy = "socks5://dumindae%40gmail.com:Hiru%40Vertx88@ie.socks.nordhold.net:1080"
+http_proxy = "http://dumindae%40gmail.com:Hiru%40Vertx88@ie.socks.nordhold.net:1080"
 
 PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
-DRIVER_BIN = os.path.join(PROJECT_ROOT, "chromedriver")
+DRIVER_BIN = os.path.join(PROJECT_ROOT, "chromedriver.exe")
 
 street_name_abrv_map = {
     "avenue":"ave",
@@ -83,13 +94,12 @@ def get_user_agent():
 
 
 def get_streets(url,user_agent,proxy):
-    response = requests.get(url,proxies={"http": proxy, "https": proxy},headers={
+    response = requests.get(url,headers={
         'User-Agent': get_user_agent(),
     })
     parser = fromstring(response.text)
     streets = set()
     for street in parser.xpath('//ul/li/a/text()'):
-      print(street)
       street_name = re.sub('\s+',' ',street).lower().replace(' ', '-')
       for key, value in street_name_abrv_map.items():
         street_name = street_name.replace("-" + key, "-" + value)
@@ -98,7 +108,7 @@ def get_streets(url,user_agent,proxy):
 
 
 def get_properties_in_street(url,user_agent,proxy):
-    response = requests.get(url,proxies={"http": proxy, "https": proxy},headers={
+    response = requests.get(url,headers={
         'User-Agent': get_user_agent(),
     })
     parser = fromstring(response.text)
@@ -107,7 +117,7 @@ def get_properties_in_street(url,user_agent,proxy):
       properties.add(i)
     return properties
 
-def get_property_details(url,user_agent,proxy,final_data):
+def get_property_details(url,user_agent,proxy):
     options = webdriver.ChromeOptions()
     options.add_argument("start-maximized")
     options.add_argument("disable-infobars")
@@ -127,7 +137,7 @@ def get_property_details(url,user_agent,proxy,final_data):
     })
     wd.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     wd.get(url)
-    time.sleep(10)
+    time.sleep(15)
 
     parser = fromstring(wd.page_source)
     short_address= parser.xpath('//div[@class="property-info__short-address"]/text()')[0]
@@ -149,39 +159,76 @@ def get_property_details(url,user_agent,proxy,final_data):
     yearBuilt = parser.xpath('//table[@class="info-table"]/tbody/tr[position()=3]/td[position()=2]/text()')[0]
 
     timelines = parser.xpath('//ul[@class="property-timeline__container with_all"]/li')
+    data_set = []
     if timelines:
      for timeline in timelines:
       timeLineParser = etree.parse(StringIO(etree.tostring(timeline).decode("utf-8")))
       soldTime = timeLineParser.xpath('//span[@class="property-timeline__date"]/text()')[0]
       soldPrice = timeLineParser.xpath('//div[@class="property-timeline__price"]/text()')[0]
-      data = [re.sub('\s+',' ',short_address), re.sub('\s+',' ',suburb), re.sub('\s+',' ',postCode), re.sub('\s+',' ',state), re.sub('\s+',' ',bedroom), re.sub('\s+',' ',bathroom), re.sub('\s+',' ',carSpaces),re.sub('\s+',' ',landSize),re.sub('\s+',' ',floorArea),re.sub('\s+',' ',yearBuilt),re.sub('\s+',' ',soldTime),re.sub('\s+',' ',soldPrice)]
-      final_data.append(data)
+      data = [re.sub('\s+',' ',short_address), re.sub('\s+',' ',suburb), re.sub('\s+',' ',postCode), re.sub('\s+',' ',state), re.sub('\s+',' ',bedroom), re.sub('\s+',' ',bathroom), re.sub('\s+',' ',carSpaces),re.sub('\s+',' ',landSize),re.sub('\s+',' ',floorArea),re.sub('\s+',' ',yearBuilt),re.sub('\s+',' ',soldTime),'"' + re.sub('\s+',' ',soldPrice)  + '"']
+      data_set.append(data)
     else:
+      logging.info("No transaction history for :" + url)
       data = [re.sub('\s+',' ',short_address), re.sub('\s+',' ',suburb), re.sub('\s+',' ',postCode), re.sub('\s+',' ',state), re.sub('\s+',' ',bedroom), re.sub('\s+',' ',bathroom), re.sub('\s+',' ',carSpaces),re.sub('\s+',' ',landSize),re.sub('\s+',' ',floorArea),re.sub('\s+',' ',yearBuilt),'','']
-      final_data.append(data)
-
-
+      data_set.append(data)
 
     wd.quit()
+    return data_set
+
 
 
 try:  
     # response = requests.get(url,proxies={"http": proxy, "https": proxy},headers=headers)
     # print(response.json())
-    final_data = []
-    for  street in get_streets("https://geographic.org/streetview/australia/vic/ringwood_east.html",get_user_agent(),proxy):
-     street_url = "https://www.realestate.com.au/vic/ringwood-east-3135/" + street
-     properties = get_properties_in_street(street_url,get_user_agent(),proxy)
-     if not  properties:
-         print("No porperties for :" + street_url)
-     for property in properties:
-      get_property_details(property,get_user_agent(),proxy,final_data)
-    
-    labels = ['Short Address','Suburub', 'PostCode', 'State', 'Bedroom','Bathroom', 'Car spaces','Land size','Floor area','Year built','Sold time','Sold  price']
-    export_dataframe_1_medium = pd.DataFrame.from_records(final_data, columns=labels)
-    export_dataframe_1_medium.to_csv('export_dataframe_2_medium.csv')
+    outfile = "ringwood_east_houses.csv"
+    count = 1
+    with codecs.open(outfile, 'w','utf-8') as csvfile:
+      header = '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (
+        'Short Address',
+        'Suburub', 
+        'PostCode', 
+        'State', 
+        'Bedroom',
+        'Bathroom', 
+        'Car spaces',
+        'Land size',
+        'Floor area',
+        'Year built',
+        'Sold time',
+        'Sold  price',
+        'URL')
+      csvfile.write(header)
+      for  street in get_streets("https://geographic.org/streetview/australia/vic/ringwood_east.html",get_user_agent(),proxy):
+        street_url = "https://www.realestate.com.au/vic/ringwood-east-3135/" + street
+        properties = get_properties_in_street(street_url,get_user_agent(),proxy)
+        if not  properties:
+          logging.info("No porperties for :" + street_url)
+        for property_url in properties:
+          property_data_set = get_property_details(property_url,get_user_agent(),proxy)
+          for property_data in property_data_set:
+            data = '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (
+              property_data[0],
+              property_data[1],
+              property_data[2],
+              property_data[3],
+              property_data[4],
+              property_data[5],
+              property_data[6],
+              property_data[7],
+              property_data[8],
+              property_data[9],
+              property_data[10],
+              property_data[11],
+              property_url
+              )
+            csvfile.write(data)
+            count+=1
+            if count == 5:
+              csvfile.flush()
+              count = 0
 except Exception as e:
-    print("Skipping. Connnection error")
-    print(e)
+    logging.error("Error occured")
+    traceback.print_exc() 
+    log_traceback(e)
     #Most free proxies will often get connection errors. You will have retry the entire request using another proxy to work. 
     #We will just skip retries as its beyond the scope of this tutorial and we are only downloading a single url 
