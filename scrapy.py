@@ -19,6 +19,8 @@ import traceback
 import codecs
 import logging
 from datetime import datetime
+from tinydb import TinyDB, Query
+
 
 logging.basicConfig(
     filename='crawling.log',
@@ -61,7 +63,24 @@ street_name_abrv_map = {
     "square":"sq",
     "station":"stn",
     "street":"st",
-    "terrace":"terr"
+    "terrace":"terr",
+    "close":"cl",
+    "grove":"gr"
+}
+
+month = {
+  'January':1,
+  'February':2,
+  'March':3,
+  'April':4,
+  'May':5,
+  'June':6,
+  'July':7,
+  'August':8,
+  'September':9,
+  'October':10,
+  'November':11,
+  'December':12,
 }
 
 def get_proxies():
@@ -98,12 +117,14 @@ def get_streets(url,user_agent,proxy):
         'User-Agent': get_user_agent(),
     })
     parser = fromstring(response.text)
-    streets = set()
+    streets = {}
+    logging.info("------------Extracting streets------------")
     for street in parser.xpath('//ul/li/a/text()'):
+      logging.info(re.sub('\s+',' ',street))
       street_name = re.sub('\s+',' ',street).lower().replace(' ', '-')
       for key, value in street_name_abrv_map.items():
         street_name = street_name.replace("-" + key, "-" + value)
-      streets.add(street_name)
+      streets[street_name] = re.sub('\s+',' ',street)
     return streets
 
 
@@ -117,7 +138,50 @@ def get_properties_in_street(url,user_agent,proxy):
       properties.add(i)
     return properties
 
-def get_property_details(url,user_agent,proxy):
+
+def  get_sale_listing_details(url,user_agent,proxy):
+    user_agent = get_user_agent()
+    options = webdriver.ChromeOptions()
+    options.add_argument("start-maximized")
+    options.add_argument("disable-infobars")
+    # options.add_argument("--proxy-server" + proxy);
+    options.add_argument('--always-authorize-plugins=true')
+    options.add_argument("--incognito")
+    options.add_argument("user-agent=" + user_agent)
+    options.add_argument("--disable-blink-features");
+    options.add_argument("--disable-blink-features=AutomationControlled"); 
+
+    wd = webdriver.Chrome(options=options,executable_path=DRIVER_BIN)
+    wd.execute_cdp_cmd('Network.setUserAgentOverride', {"userAgent": user_agent})
+    wd.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+      "source": "Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"
+    })
+    wd.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    wd.get(url)
+    time.sleep(15)
+
+    listing_details = {}
+    parser = fromstring(wd.page_source)
+    property_type = parser.xpath('//span[@class="property-info__property-type"]/text()')[0]
+    listing_details['property_type'] = property_type
+    listed_price = parser.xpath('//span[@class="property-price property-info__price"]/text()')[0] if (len(parser.xpath('//span[@class="property-price property-info__price"]/text()')) > 0) else ''
+    listed_price = re.sub('\s+',' ',listed_price)
+    if listed_price:
+      listed_price_arr = listed_price.split('-')
+      fromPrice = float(re.sub('[\$,]', '',listed_price_arr[0]))
+      listing_details['from_price'] = fromPrice
+      toPrice = float(re.sub('[\$,]', '',listed_price_arr[1]))
+      listing_details['to_price'] = toPrice
+    listing_details['url'] = url
+
+    wd.quit()
+    return listing_details
+      
+
+
+
+def get_property_details(url,proxy):
+    user_agent = get_user_agent()
     options = webdriver.ChromeOptions()
     options.add_argument("start-maximized")
     options.add_argument("disable-infobars")
@@ -147,29 +211,96 @@ def get_property_details(url,user_agent,proxy):
 
     bedroomsElement = parser.xpath('//span[@class="rui-property-feature"]/span/span[text()="Bedrooms"]/../..')[0]
     bedroom  = etree.parse(StringIO(etree.tostring(bedroomsElement).decode("utf-8")), etree.HTMLParser()).xpath('//span[@class="config-num"]/text()')[0]
+    bedroom = re.sub('\s+',' ',bedroom) 
+    bedroom = int(bedroom) if bedroom != '-' else 0
 
     bathroomsElement = parser.xpath('//span[@class="rui-property-feature"]/span/span[text()="Bathrooms"]/../..')[0]
     bathroom  = etree.parse(StringIO(etree.tostring(bathroomsElement).decode("utf-8")), etree.HTMLParser()).xpath('//span[@class="config-num"]/text()')[0]
+    bathroom = re.sub('\s+',' ',bathroom) 
+    bathroom = int(bathroom) if bathroom != '-' else 0
 
     carSpacesElement = parser.xpath('//span[@class="rui-property-feature"]/span/span[text()="Car Spaces"]/../..')[0]
     carSpaces  = etree.parse(StringIO(etree.tostring(carSpacesElement).decode("utf-8")), etree.HTMLParser()).xpath('//span[@class="config-num"]/text()')[0]
+    carSpaces = re.sub('\s+',' ',carSpaces) 
+    carSpaces = int(carSpaces) if carSpaces != '-' else 0
 
-    landSize = parser.xpath('//table[@class="info-table"]/tbody/tr[position()=1]/td[position()=2]/text()')[0]
+    landSizeString = re.sub('\s+',' ',parser.xpath('//table[@class="info-table"]/tbody/tr[position()=1]/td[position()=2]/text()')[0])
+    landSizeString = re.sub(',+','',landSizeString)
+    landSizeStrings = landSizeString.split()
+    landSize = float(landSizeStrings[0]) if (len(landSizeStrings) > 0) else 0.0
+    landSizeMeasurement = landSizeStrings[1] if (len(landSizeStrings) > 0) else ''
     floorArea = parser.xpath('//table[@class="info-table"]/tbody/tr[position()=2]/td[position()=2]/text()')[0]
     yearBuilt = parser.xpath('//table[@class="info-table"]/tbody/tr[position()=3]/td[position()=2]/text()')[0]
+
+    forSale = True if parser.xpath('//span[@class="property-status-text"]/text()')[0] == 'FOR SALE' else False
+    
+    listing_details = {
+      'property_type':'',
+      'from_price':0.0,
+      'to_price':0.0,
+      'url':''
+    }
+    if forSale:
+      listing_url = parser.xpath('//div[@class="property-info__market-status"]/a/@href')[0]
+      listing_details = get_sale_listing_details(listing_url,get_user_agent(),proxy)
+
 
     timelines = parser.xpath('//ul[@class="property-timeline__container with_all"]/li')
     data_set = []
     if timelines:
      for timeline in timelines:
       timeLineParser = etree.parse(StringIO(etree.tostring(timeline).decode("utf-8")))
-      soldTime = timeLineParser.xpath('//span[@class="property-timeline__date"]/text()')[0]
-      soldPrice = timeLineParser.xpath('//div[@class="property-timeline__price"]/text()')[0]
-      data = [re.sub('\s+',' ',short_address), re.sub('\s+',' ',suburb), re.sub('\s+',' ',postCode), re.sub('\s+',' ',state), re.sub('\s+',' ',bedroom), re.sub('\s+',' ',bathroom), re.sub('\s+',' ',carSpaces),re.sub('\s+',' ',landSize),re.sub('\s+',' ',floorArea),re.sub('\s+',' ',yearBuilt),re.sub('\s+',' ',soldTime),'"' + re.sub('\s+',' ',soldPrice)  + '"']
+      soldTime = re.sub('\s+',' ',timeLineParser.xpath('//span[@class="property-timeline__date"]/text()')[0])
+      soldMonth = month[soldTime.split()[0]]
+      soldYear = int(soldTime.split()[1])
+      soldPriceString = timeLineParser.xpath('//div[@class="property-timeline__price"]/text()')[0] if (len(timeLineParser.xpath('//div[@class="property-timeline__price"]/text()')) > 0) else 'NO_PRICE'
+      soldPriceString = re.sub('\s+',' ',soldPriceString)
+      soldPrice = 0.0 if soldPriceString == 'NO_PRICE' else float(re.sub('[\$,]', '',soldPriceString))
+      data = [
+        re.sub('\s+',' ',short_address), 
+        re.sub('\s+',' ',suburb), 
+        re.sub('\s+',' ',postCode), 
+        re.sub('\s+',' ',state), 
+        bedroom, 
+        bathroom, 
+        carSpaces,
+        landSize,
+        landSizeMeasurement,
+        '"' + re.sub('\s+',' ',floorArea) + '"',
+        re.sub('\s+',' ',yearBuilt),
+        soldMonth,
+        soldYear,
+        soldPrice,
+        forSale,
+        listing_details['property_type'],
+        listing_details['from_price'],
+        listing_details['to_price'],
+        listing_details['url']
+        ]
       data_set.append(data)
     else:
       logging.info("No transaction history for :" + url)
-      data = [re.sub('\s+',' ',short_address), re.sub('\s+',' ',suburb), re.sub('\s+',' ',postCode), re.sub('\s+',' ',state), re.sub('\s+',' ',bedroom), re.sub('\s+',' ',bathroom), re.sub('\s+',' ',carSpaces),re.sub('\s+',' ',landSize),re.sub('\s+',' ',floorArea),re.sub('\s+',' ',yearBuilt),'','']
+      data = [
+        re.sub('\s+',' ',short_address), 
+        re.sub('\s+',' ',suburb), 
+        re.sub('\s+',' ',postCode), 
+        re.sub('\s+',' ',state), 
+        bedroom, 
+        bathroom, 
+        carSpaces,
+        landSize,
+        landSizeMeasurement,
+        '"' + re.sub('\s+',' ',floorArea) + '"',
+        re.sub('\s+',' ',yearBuilt),
+        0,
+        0,
+        0.0,
+        forSale,
+        listing_details['property_type'],
+        listing_details['from_price'],
+        listing_details['to_price'],
+        listing_details['url']
+        ]
       data_set.append(data)
 
     wd.quit()
@@ -177,13 +308,15 @@ def get_property_details(url,user_agent,proxy):
 
 
 
+
+
 try:  
     # response = requests.get(url,proxies={"http": proxy, "https": proxy},headers=headers)
     # print(response.json())
-    outfile = "ringwood_east_houses.csv"
+    outfile = "croydon_south_houses.csv"
     count = 1
     with codecs.open(outfile, 'w','utf-8') as csvfile:
-      header = '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (
+      header = '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (
         'Short Address',
         'Suburub', 
         'PostCode', 
@@ -192,43 +325,63 @@ try:
         'Bathroom', 
         'Car spaces',
         'Land size',
+        'Land size Measurment',
         'Floor area',
         'Year built',
-        'Sold time',
+        'Sold year',
+        'Sold month',
         'Sold  price',
-        'URL')
+        'URL',
+        'For Sale',
+        'For Sale Property Type',
+        'Sale From Price',
+        'Sale To Price',
+        'Sale Url')
       csvfile.write(header)
-      for  street in get_streets("https://geographic.org/streetview/australia/vic/ringwood_east.html",get_user_agent(),proxy):
-        street_url = "https://www.realestate.com.au/vic/ringwood-east-3135/" + street
+      for  street_url_path,street_name in get_streets("https://geographic.org/streetview/australia/vic/croydon_south.html",get_user_agent(),proxy).items():
+        street_url = "https://www.realestate.com.au/vic/croydon-south-3136/" + street_url_path
+        logging.info('processing street :' + street_name)
         properties = get_properties_in_street(street_url,get_user_agent(),proxy)
         if not  properties:
-          logging.info("No porperties for :" + street_url)
+          logging.info("No porperties for :" + street_url + " street name " + street_name)
         for property_url in properties:
-          property_data_set = get_property_details(property_url,get_user_agent(),proxy)
-          for property_data in property_data_set:
-            data = '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (
-              property_data[0],
-              property_data[1],
-              property_data[2],
-              property_data[3],
-              property_data[4],
-              property_data[5],
-              property_data[6],
-              property_data[7],
-              property_data[8],
-              property_data[9],
-              property_data[10],
-              property_data[11],
-              property_url
-              )
-            csvfile.write(data)
-            count+=1
-            if count == 5:
-              csvfile.flush()
-              count = 0
+          try:
+            property_data_set = get_property_details(property_url,proxy)
+            for property_data in property_data_set:
+              print(property_data)
+              data = '%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,\n' % (
+                property_data[0],
+                property_data[1],
+                property_data[2],
+                property_data[3],
+                property_data[4],
+                property_data[5],
+                property_data[6],
+                property_data[7],
+                property_data[8],
+                property_data[9],
+                property_data[10],
+                property_data[11],
+                property_data[12],
+                property_data[13],
+                property_url,
+                property_data[14],
+                property_data[15],
+                property_data[16],
+                property_data[17],
+                property_data[18],
+                )
+              csvfile.write(data)
+              count+=1
+              if count == 100:
+                csvfile.flush()
+                count = 0
+          except Exception as e:
+            logging.error("Error occured property url : " + property_url)
+            logging.error(e, exc_info=True)
 except Exception as e:
     logging.error("Error occured")
     traceback.print_exc() 
-    log_traceback(e)
+    logging.error(e, exc_info=True)
     #Most free proxies will often get connection errors. You will have retry the entire request using another proxy to work. 
     #We will just skip retries as its beyond the scope of this tutorial and we are only downloading a single url 
