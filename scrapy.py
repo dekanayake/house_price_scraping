@@ -168,10 +168,15 @@ def  get_sale_listing_details(url,user_agent,proxy):
     listed_price = re.sub('\s+',' ',listed_price)
     if listed_price:
       listed_price_arr = listed_price.split('-')
-      fromPrice = float(re.sub('[\$,]', '',listed_price_arr[0]))
-      listing_details['from_price'] = fromPrice
-      toPrice = float(re.sub('[\$,]', '',listed_price_arr[1]))
-      listing_details['to_price'] = toPrice
+      if len(listed_price_arr) == 2:
+        fromPrice = float(re.sub('[\$,]', '',listed_price_arr[0]))
+        listing_details['from_price'] = fromPrice
+        toPrice = float(re.sub('[\$,]', '',listed_price_arr[1]))
+        listing_details['to_price'] = toPrice
+      else:
+        price = float(re.sub('[\$,]', '',listed_price_arr[0]))
+        listing_details['from_price'] = price
+        listing_details['to_price'] = price
     listing_details['url'] = url
 
     wd.quit()
@@ -225,10 +230,10 @@ def get_property_details(url,proxy):
     carSpaces = int(carSpaces) if carSpaces != '-' else 0
 
     landSizeString = re.sub('\s+',' ',parser.xpath('//table[@class="info-table"]/tbody/tr[position()=1]/td[position()=2]/text()')[0])
-    landSizeString = re.sub(',+','',landSizeString)
+    landSizeString = re.sub(',+','',landSizeString) if landSizeString != 'Unavailable'  else '0.0'
     landSizeStrings = landSizeString.split()
     landSize = float(landSizeStrings[0]) if (len(landSizeStrings) > 0) else 0.0
-    landSizeMeasurement = landSizeStrings[1] if (len(landSizeStrings) > 0) else ''
+    landSizeMeasurement = landSizeStrings[1] if (len(landSizeStrings) > 1) else ''
     floorArea = parser.xpath('//table[@class="info-table"]/tbody/tr[position()=2]/td[position()=2]/text()')[0]
     yearBuilt = parser.xpath('//table[@class="info-table"]/tbody/tr[position()=3]/td[position()=2]/text()')[0]
 
@@ -348,7 +353,6 @@ try:
           try:
             property_data_set = get_property_details(property_url,proxy)
             for property_data in property_data_set:
-              print(property_data)
               data = '%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,\n' % (
                 property_data[0],
                 property_data[1],
