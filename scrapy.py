@@ -65,7 +65,8 @@ street_name_abrv_map = {
     "street":"st",
     "terrace":"terr",
     "close":"cl",
-    "grove":"gr"
+    "grove":"gr",
+    "circuit":"cct",
 }
 
 month = {
@@ -314,67 +315,166 @@ def get_property_details(url,proxy):
 
 
 
+def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,outFileName):
+  try:  
+      # response = requests.get(url,proxies={"http": proxy, "https": proxy},headers=headers)
+      # print(response.json())
+      outfile = outFileName
+      count = 1
+      with codecs.open(outfile, 'w','utf-8') as csvfile:
+        header = '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (
+          'Short Address',
+          'Suburub', 
+          'PostCode', 
+          'State', 
+          'Bedroom',
+          'Bathroom', 
+          'Car spaces',
+          'Land size',
+          'Land size Measurment',
+          'Floor area',
+          'Year built',
+          'Sold year',
+          'Sold month',
+          'Sold  price',
+          'URL',
+          'For Sale',
+          'For Sale Property Type',
+          'Sale From Price',
+          'Sale To Price',
+          'Sale Url')
+        csvfile.write(header)
+        for  street_url_path,street_name in get_streets(streetsUrl,get_user_agent(),proxy).items():
+          street_url = realEstateSuburubBaseUrl + street_url_path
+          logging.info('processing street :' + street_name)
+          properties = get_properties_in_street(street_url,get_user_agent(),proxy)
+          if not  properties:
+            logging.info("No porperties for :" + street_url + " street name " + street_name)
+          for property_url in properties:
+            try:
+              property_data_set = get_property_details(property_url,proxy)
+              for property_data in property_data_set:
+                data = '%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,\n' % (
+                  property_data[0],
+                  property_data[1],
+                  property_data[2],
+                  property_data[3],
+                  property_data[4],
+                  property_data[5],
+                  property_data[6],
+                  property_data[7],
+                  property_data[8],
+                  property_data[9],
+                  property_data[10],
+                  property_data[11],
+                  property_data[12],
+                  property_data[13],
+                  property_url,
+                  property_data[14],
+                  property_data[15],
+                  property_data[16],
+                  property_data[17],
+                  property_data[18],
+                  )
+                csvfile.write(data)
+                count+=1
+                if count == 100:
+                  csvfile.flush()
+                  count = 0
+            except Exception as e:
+              logging.error("Error occured property url : " + property_url)
+              logging.error(e, exc_info=True)
+  except Exception as e:
+      logging.error("Error occured")
+      traceback.print_exc() 
+      logging.error(e, exc_info=True)
+      #Most free proxies will often get connection errors. You will have retry the entire request using another proxy to work. 
+      #We will just skip retries as its beyond the scope of this tutorial and we are only downloading a single url 
 
-try:  
-    # response = requests.get(url,proxies={"http": proxy, "https": proxy},headers=headers)
-    # print(response.json())
-    outfile = "croydon_south_houses.csv"
-    count = 1
-    with codecs.open(outfile, 'w','utf-8') as csvfile:
-      header = '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (
-        'Short Address',
-        'Suburub', 
-        'PostCode', 
-        'State', 
-        'Bedroom',
-        'Bathroom', 
-        'Car spaces',
-        'Land size',
-        'Land size Measurment',
-        'Floor area',
-        'Year built',
-        'Sold year',
-        'Sold month',
-        'Sold  price',
-        'URL',
-        'For Sale',
-        'For Sale Property Type',
-        'Sale From Price',
-        'Sale To Price',
-        'Sale Url')
-      csvfile.write(header)
-      for  street_url_path,street_name in get_streets("https://geographic.org/streetview/australia/vic/croydon_south.html",get_user_agent(),proxy).items():
-        street_url = "https://www.realestate.com.au/vic/croydon-south-3136/" + street_url_path
-        logging.info('processing street :' + street_name)
-        properties = get_properties_in_street(street_url,get_user_agent(),proxy)
-        if not  properties:
-          logging.info("No porperties for :" + street_url + " street name " + street_name)
-        for property_url in properties:
+
+def scrapeStreetUrls(street_urls,  outFileName):
+  logging.info('Scraping properties from street urls')
+  try:
+      outfile = outFileName
+      count = 1
+      with codecs.open(outfile, 'a','utf-8') as csvfile:
+        for  street_url in street_urls:
+          logging.info('processing street url :' + street_url)
+          properties = get_properties_in_street(street_url,get_user_agent(),proxy)
+          if not  properties:
+            logging.info("No porperties for :" + street_url )
+          for property_url in properties:
+            try:
+              property_data_set = get_property_details(property_url,proxy)
+              for property_data in property_data_set:
+                data = '%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,\n' % (
+                    property_data[0],
+                    property_data[1],
+                    property_data[2],
+                    property_data[3],
+                    property_data[4],
+                    property_data[5],
+                    property_data[6],
+                    property_data[7],
+                    property_data[8],
+                    property_data[9],
+                    property_data[10],
+                    property_data[11],
+                    property_data[12],
+                    property_data[13],
+                    property_url,
+                    property_data[14],
+                    property_data[15],
+                    property_data[16],
+                    property_data[17],
+                    property_data[18],
+                    )
+                csvfile.write(data)
+                count+=1
+                if count == 100:
+                  csvfile.flush()
+                  count = 0
+            except Exception as e:
+              logging.error("Error occured property url : " + property_url)
+              logging.error(e, exc_info=True)
+  except Exception as e: 
+    logging.error("Error occured") 
+    logging.error(e, exc_info=True)
+
+
+def scrapePropertyUrls(property_urls,  outFileName):
+  logging.info('Scraping properties from urls')
+  try:
+      outfile = outFileName
+      count = 1
+      with codecs.open(outfile, 'a','utf-8') as csvfile:
+        for  property_url in property_urls:
+          logging.info('processing property url :' + property_url)
           try:
             property_data_set = get_property_details(property_url,proxy)
             for property_data in property_data_set:
               data = '%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,\n' % (
-                property_data[0],
-                property_data[1],
-                property_data[2],
-                property_data[3],
-                property_data[4],
-                property_data[5],
-                property_data[6],
-                property_data[7],
-                property_data[8],
-                property_data[9],
-                property_data[10],
-                property_data[11],
-                property_data[12],
-                property_data[13],
-                property_url,
-                property_data[14],
-                property_data[15],
-                property_data[16],
-                property_data[17],
-                property_data[18],
-                )
+                    property_data[0],
+                    property_data[1],
+                    property_data[2],
+                    property_data[3],
+                    property_data[4],
+                    property_data[5],
+                    property_data[6],
+                    property_data[7],
+                    property_data[8],
+                    property_data[9],
+                    property_data[10],
+                    property_data[11],
+                    property_data[12],
+                    property_data[13],
+                    property_url,
+                    property_data[14],
+                    property_data[15],
+                    property_data[16],
+                    property_data[17],
+                    property_data[18],
+                    )
               csvfile.write(data)
               count+=1
               if count == 100:
@@ -383,9 +483,22 @@ try:
           except Exception as e:
             logging.error("Error occured property url : " + property_url)
             logging.error(e, exc_info=True)
-except Exception as e:
-    logging.error("Error occured")
-    traceback.print_exc() 
+  except Exception as e: 
+    logging.error("Error occured") 
     logging.error(e, exc_info=True)
-    #Most free proxies will often get connection errors. You will have retry the entire request using another proxy to work. 
-    #We will just skip retries as its beyond the scope of this tutorial and we are only downloading a single url 
+
+# scrapeForSuburb("https://geographic.org/streetview/australia/vic/croydon_south.html","https://www.realestate.com.au/vic/croydon-south-3136/","croydon_south_houses.csv")
+
+# scrapeStreetUrls([
+#   "https://www.realestate.com.au/vic/croydon-south-3136/azarow-cct",
+#   "https://www.realestate.com.au/vic/croydon-south-3136/belmont-rd-e",
+#   "https://www.realestate.com.au/vic/croydon-south-3136/belmont-rd-w",
+#   "https://www.realestate.com.au/vic/croydon-south-3136/blazey-rd",
+#   "https://www.realestate.com.au/vic/croydon-south-3136/the-common",
+#   "https://www.realestate.com.au/vic/croydon-south-3136/the-mount",
+#   "https://www.realestate.com.au/vic/croydon-south-3136/the-place"
+# ],"croydon_south_houses.csv")
+
+scrapePropertyUrls([
+  "https://www.realestate.com.au/property/6-mulduri-cres-croydon-south-vic-3136"
+],"croydon_south_houses.csv")
