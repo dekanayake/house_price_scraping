@@ -279,6 +279,11 @@ def get_property_details(url,proxy):
     state = parser.xpath('//span[@itemprop="addressRegion"]/text()')[0]
     postCode = parser.xpath('//span[@itemprop="postalCode"]/text()')[0]
 
+    property_type = parser.xpath('//section[@id="about-property"]/h2/text()')[0]
+    property_type = property_type.replace("About this", "")
+    property_type = re.sub('\s+','',property_type) 
+
+
     bedroomsElement = parser.xpath('//span[@class="rui-property-feature"]/span/span[text()="Bedrooms"]/../..')[0]
     bedroom  = etree.parse(StringIO(etree.tostring(bedroomsElement).decode("utf-8")), etree.HTMLParser()).xpath('//span[@class="config-num"]/text()')[0]
     bedroom = re.sub('\s+',' ',bedroom) 
@@ -331,6 +336,7 @@ def get_property_details(url,proxy):
         re.sub('\s+',' ',suburb), 
         re.sub('\s+',' ',postCode), 
         re.sub('\s+',' ',state), 
+        property_type,
         bedroom, 
         bathroom, 
         carSpaces,
@@ -355,6 +361,7 @@ def get_property_details(url,proxy):
         re.sub('\s+',' ',suburb), 
         re.sub('\s+',' ',postCode), 
         re.sub('\s+',' ',state), 
+        property_type,
         bedroom, 
         bathroom, 
         carSpaces,
@@ -386,11 +393,12 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
       outfile = outFileName
       count = 1
       with codecs.open(outfile, 'w','utf-8') as csvfile:
-        header = '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (
+        header = '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (
           'Short Address',
           'Suburub', 
           'PostCode', 
-          'State', 
+          'State',
+          'Property type', 
           'Bedroom',
           'Bathroom', 
           'Car spaces',
@@ -427,7 +435,7 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
             try:
               property_data_set = get_property_details(property_url,proxy)
               for property_data in property_data_set:
-                data = '%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,\n' % (
+                data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,\n' % (
                   property_data[0],
                   property_data[1],
                   property_data[2],
@@ -442,12 +450,13 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
                   property_data[11],
                   property_data[12],
                   property_data[13],
-                  property_url,
                   property_data[14],
+                  property_url,
                   property_data[15],
                   property_data[16],
                   property_data[17],
                   property_data[18],
+                  property_data[19]
                   )
                 csvfile.write(data)
                 count+=1
@@ -480,7 +489,7 @@ def scrapeStreetUrls(street_urls,  outFileName):
             try:
               property_data_set = get_property_details(property_url,proxy)
               for property_data in property_data_set:
-                data = '%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,\n' % (
+                data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,\n' % (
                     property_data[0],
                     property_data[1],
                     property_data[2],
@@ -495,12 +504,13 @@ def scrapeStreetUrls(street_urls,  outFileName):
                     property_data[11],
                     property_data[12],
                     property_data[13],
-                    property_url,
                     property_data[14],
+                    property_url,
                     property_data[15],
                     property_data[16],
                     property_data[17],
                     property_data[18],
+                    property_data[19]
                     )
                 csvfile.write(data)
                 count+=1
@@ -541,12 +551,13 @@ def scrapePropertyUrls(property_urls,  outFileName):
                     property_data[11],
                     property_data[12],
                     property_data[13],
-                    property_url,
                     property_data[14],
+                    property_url,
                     property_data[15],
                     property_data[16],
                     property_data[17],
                     property_data[18],
+                    property_data[19]
                     )
               csvfile.write(data)
               count+=1
@@ -560,7 +571,7 @@ def scrapePropertyUrls(property_urls,  outFileName):
     logging.error("Error occured") 
     logging.error(e, exc_info=True)
 
-scrapeForSuburb("https://geographic.org/streetview/australia/vic/croydon.html","https://www.realestate.com.au/vic/croydon-3136/","croydon","croydon_houses.csv")
+scrapeForSuburb("https://geographic.org/streetview/australia/vic/croydon_south.html","https://www.realestate.com.au/vic/croydon-south-3136/","Croydon South","croydon_south_houses.csv")
 
 # scrapeStreetUrls([
 #   "https://www.realestate.com.au/vic/croydon-south-3136/azarow-cct",
