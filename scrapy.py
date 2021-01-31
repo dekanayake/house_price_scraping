@@ -1,4 +1,5 @@
 import requests
+from requests.exceptions import HTTPError
 from lxml.html import fromstring
 from lxml import etree
 from itertools import cycle
@@ -20,6 +21,8 @@ import codecs
 import logging
 from datetime import datetime
 from tinydb import TinyDB, Query
+import urllib.parse
+from itertools import permutations 
 
 
 logging.basicConfig(
@@ -128,6 +131,11 @@ def get_streets(url,user_agent,proxy):
       streets[street_name] = re.sub('\s+',' ',street)
     return streets
 
+def get_mock_streets(url,user_agent,proxy):
+    streets = {}
+    streets["blazey-walk"] = "Blazey Walk"
+    return streets
+
 
 def get_properties_in_street(url,user_agent,proxy):
     response = requests.get(url,headers={
@@ -138,6 +146,62 @@ def get_properties_in_street(url,user_agent,proxy):
     for i in parser.xpath('//a[contains(@class, "property-card-link")]/@href'):
       properties.add(i)
     return properties
+
+def get_missing_street_url(street_name, suburubName):
+  street_name_words_perm = permutations(street_name.split())
+
+  for street_name_perm_list in list(street_name_words_perm):
+    street_name_perm = ' '.join(street_name_perm_list) + "," + suburubName
+    print(street_name_perm)
+    street_name_perm = urllib.parse.quote(street_name_perm)
+    print(street_name_perm)
+    search_url = 'https://suggest.realestate.com.au/consumer-suggest/suggestions?max=20&type=address&src=p4ep&query=' + street_name_perm
+    try:
+      headers = {'User-Agent': get_user_agent(), 'Content-type': 'application/json'}
+      response = requests.get(search_url,headers = headers)
+      response.raise_for_status()
+      # access JSOn content
+      jsonResponse = response.json()
+      result_count  = len(jsonResponse["_embedded"]["suggestions"])
+      if result_count == 0 :
+        continue
+      else:
+        result_url =  jsonResponse["_embedded"]["suggestions"][0]["source"]["url"]  
+        options = webdriver.ChromeOptions()
+        options.add_argument("start-maximized")
+        options.add_argument("disable-infobars")
+        # options.add_argument("--proxy-server" + proxy);
+        options.add_argument('--always-authorize-plugins=true')
+        options.add_argument("--incognito")
+        options.add_argument("user-agent=" + get_user_agent())
+        options.add_argument("--disable-blink-features");
+        options.add_argument("--disable-blink-features=AutomationControlled"); 
+
+        wd = webdriver.Chrome(options=options,executable_path=DRIVER_BIN)
+        wd.execute_cdp_cmd('Network.setUserAgentOverride', {"userAgent": get_user_agent()})
+        wd.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+          "source": "Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"
+        })
+        wd.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        wd.get(result_url)
+        time.sleep(15)
+
+        parser = fromstring(wd.page_source)
+        url = parser.xpath('//a[@class="header-show-search__breadcrumbs-link"]/@href')[1]
+        wd.quit()
+        return url
+
+
+    except HTTPError as http_err:
+      logging.error("Error occured while finding the missing street ") 
+      logging.error(http_err, exc_info=True)
+    except Exception as err:
+      logging.error("Error occured while finding the missing street ") 
+      logging.error(err, exc_info=True)
+
+  return ""
+
+
 
 
 def  get_sale_listing_details(url,user_agent,proxy):
@@ -315,7 +379,7 @@ def get_property_details(url,proxy):
 
 
 
-def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,outFileName):
+def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
   try:  
       # response = requests.get(url,proxies={"http": proxy, "https": proxy},headers=headers)
       # print(response.json())
@@ -349,7 +413,16 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,outFileName):
           logging.info('processing street :' + street_name)
           properties = get_properties_in_street(street_url,get_user_agent(),proxy)
           if not  properties:
-            logging.info("No porperties for :" + street_url + " street name " + street_name)
+            logging.info("No porperties for :" + street_url + " street name " + street_name + " finding the url through missing street method")
+            updated_property_url = get_missing_street_url(street_name,subrubName)
+            if updated_property_url:
+              logging.info('processing for resolved street :' + updated_property_url)
+              properties = get_properties_in_street(updated_property_url,get_user_agent(),proxy)
+              if not  properties:
+                logging.info("No porperties for  :" + updated_property_url + " street name " + street_name + " even after finding the url through missing street method")
+            else:
+              logging.info("No porperties for :" + street_url + " street name " + street_name)  
+
           for property_url in properties:
             try:
               property_data_set = get_property_details(property_url,proxy)
@@ -487,7 +560,7 @@ def scrapePropertyUrls(property_urls,  outFileName):
     logging.error("Error occured") 
     logging.error(e, exc_info=True)
 
-# scrapeForSuburb("https://geographic.org/streetview/australia/vic/croydon_south.html","https://www.realestate.com.au/vic/croydon-south-3136/","croydon_south_houses.csv")
+scrapeForSuburb("https://geographic.org/streetview/australia/vic/croydon.html","https://www.realestate.com.au/vic/croydon-3136/","croydon","croydon_houses.csv")
 
 # scrapeStreetUrls([
 #   "https://www.realestate.com.au/vic/croydon-south-3136/azarow-cct",
@@ -499,6 +572,6 @@ def scrapePropertyUrls(property_urls,  outFileName):
 #   "https://www.realestate.com.au/vic/croydon-south-3136/the-place"
 # ],"croydon_south_houses.csv")
 
-scrapePropertyUrls([
-  "https://www.realestate.com.au/property/6-mulduri-cres-croydon-south-vic-3136"
-],"croydon_south_houses.csv")
+# scrapePropertyUrls([
+#   "https://www.realestate.com.au/property/6-mulduri-cres-croydon-south-vic-3136"
+# ],"croydon_south_houses.csv")
