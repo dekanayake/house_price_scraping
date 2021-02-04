@@ -24,13 +24,17 @@ from tinydb import TinyDB, Query
 import urllib.parse
 from itertools import permutations 
 
+def  configLog(suburbName):
+  fileNamePrefix = suburbName.lower()
+  fileNamePrefix = '-'.join(fileNamePrefix.split())
+  dateTimePrefix  =  datetime.now().strftime("%m%d%Y%H%M%S")
+  logging.basicConfig(
+      filename= fileNamePrefix + "_" +  dateTimePrefix + "_crawling.log",
+      format='%(asctime)s %(levelname)-8s %(message)s',
+      level=logging.INFO,
+      datefmt='%Y-%m-%d %H:%M:%S')
+  logging.info('Crawling started for  ' + suburbName)
 
-logging.basicConfig(
-    filename='crawling.log',
-    format='%(asctime)s %(levelname)-8s %(message)s',
-    level=logging.INFO,
-    datefmt='%Y-%m-%d %H:%M:%S')
-logging.info('Crawling started')
 software_names_windows = [SoftwareName.CHROME.value,SoftwareName.FIREFOX.value,SoftwareName.EDGE.value,SoftwareName.OPERA.value]
 operating_systems_windows = [OperatingSystem.WINDOWS.value,OperatingSystem.WINDOWS_MOBILE.value,OperatingSystem.WINDOWS_PHONE.value] 
 
@@ -225,21 +229,27 @@ def  get_sale_listing_details(url,user_agent,proxy):
     wd.get(url)
     time.sleep(15)
 
-    listing_details = {}
+    listing_details = {
+      'property_type':'',
+      'from_price':0.0,
+      'to_price':0.0,
+      'url':''
+    }
     parser = fromstring(wd.page_source)
     property_type = parser.xpath('//span[@class="property-info__property-type"]/text()')[0]
     listing_details['property_type'] = property_type
     listed_price = parser.xpath('//span[@class="property-price property-info__price"]/text()')[0] if (len(parser.xpath('//span[@class="property-price property-info__price"]/text()')) > 0) else ''
     listed_price = re.sub('\s+',' ',listed_price)
-    if listed_price:
+
+    if listed_price and re.search("\d+", listed_price):
       listed_price_arr = listed_price.split('-')
       if len(listed_price_arr) == 2:
-        fromPrice = float(re.sub('[\$,]', '',listed_price_arr[0]))
+        fromPrice = float(re.sub('[\$,\D]', '',listed_price_arr[0]))
         listing_details['from_price'] = fromPrice
-        toPrice = float(re.sub('[\$,]', '',listed_price_arr[1]))
+        toPrice = float(re.sub('[\$,\D]', '',listed_price_arr[1]))
         listing_details['to_price'] = toPrice
       else:
-        price = float(re.sub('[\$,]', '',listed_price_arr[0]))
+        price = float(re.sub('[\$,\D]', '',listed_price_arr[0]))
         listing_details['from_price'] = price
         listing_details['to_price'] = price
     listing_details['url'] = url
@@ -435,7 +445,7 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
             try:
               property_data_set = get_property_details(property_url,proxy)
               for property_data in property_data_set:
-                data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,\n' % (
+                data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s\n' % (
                   property_data[0],
                   property_data[1],
                   property_data[2],
@@ -489,7 +499,7 @@ def scrapeStreetUrls(street_urls,  outFileName):
             try:
               property_data_set = get_property_details(property_url,proxy)
               for property_data in property_data_set:
-                data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,\n' % (
+                data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s\n' % (
                     property_data[0],
                     property_data[1],
                     property_data[2],
@@ -536,7 +546,7 @@ def scrapePropertyUrls(property_urls,  outFileName):
           try:
             property_data_set = get_property_details(property_url,proxy)
             for property_data in property_data_set:
-              data = '%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,\n' % (
+              data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s\n' % (
                     property_data[0],
                     property_data[1],
                     property_data[2],
@@ -571,7 +581,9 @@ def scrapePropertyUrls(property_urls,  outFileName):
     logging.error("Error occured") 
     logging.error(e, exc_info=True)
 
-scrapeForSuburb("https://geographic.org/streetview/australia/vic/croydon_south.html","https://www.realestate.com.au/vic/croydon-south-3136/","Croydon South","croydon_south_houses.csv")
+
+configLog("Croydon")
+#scrapeForSuburb("https://geographic.org/streetview/australia/vic/croydon.html","https://www.realestate.com.au/vic/croydon-3136/","Croydon","croydon_houses.csv")
 
 # scrapeStreetUrls([
 #   "https://www.realestate.com.au/vic/croydon-south-3136/azarow-cct",
@@ -583,6 +595,15 @@ scrapeForSuburb("https://geographic.org/streetview/australia/vic/croydon_south.h
 #   "https://www.realestate.com.au/vic/croydon-south-3136/the-place"
 # ],"croydon_south_houses.csv")
 
-# scrapePropertyUrls([
-#   "https://www.realestate.com.au/property/6-mulduri-cres-croydon-south-vic-3136"
-# ],"croydon_south_houses.csv")
+scrapePropertyUrls([
+  "https://www.realestate.com.au/property/7a-allendale-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/14a-aminga-ct-croydon-vic-3136",
+  "https://www.realestate.com.au/property/1a-cecil-cct-croydon-vic-3136",
+  "https://www.realestate.com.au/property/16-como-cl-croydon-vic-3136",
+  "https://www.realestate.com.au/property/3-dixon-ave-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-1-59-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-2-9-laird-st-croydon-vic-3136",
+  "https://www.realestate.com.au/property/1-paul-st-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-3-2-rawlinson-st-croydon-vic-3136",
+  "https://www.realestate.com.au/property/47-surrey-rd-e-croydon-vic-3136"
+],"croydon_houses.csv")
