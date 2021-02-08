@@ -127,12 +127,17 @@ def get_streets(url,user_agent,proxy):
     parser = fromstring(response.text)
     streets = {}
     logging.info("------------Extracting streets------------")
-    for street in parser.xpath('//ul/li/a/text()'):
-      logging.info(re.sub('\s+',' ',street))
-      street_name = re.sub('\s+',' ',street).lower().replace(' ', '-')
-      for key, value in street_name_abrv_map.items():
-        street_name = street_name.replace("-" + key, "-" + value)
-      streets[street_name] = re.sub('\s+',' ',street)
+    for street_first_letter_url in parser.xpath('//div[@id="alphabet"]/a/@href'):
+      response = requests.get(street_first_letter_url,headers={
+        'User-Agent': get_user_agent(),
+      })
+      parser = fromstring(response.text)
+      for street in parser.xpath('//div[@id="showhide"]/div[@id="suburbs_by_id"]/ul/li/a/text()'):
+        logging.info(re.sub('\s+',' ',street))
+        street_name = re.sub('\s+',' ',street).lower().replace(' ', '-')
+        for key, value in street_name_abrv_map.items():
+          street_name = street_name.replace("-" + key, "-" + value)
+        streets[street_name] = re.sub('\s+',' ',street)
     return streets
 
 def get_mock_streets(url,user_agent,proxy):
@@ -329,6 +334,9 @@ def get_property_details(url,proxy):
       listing_url = parser.xpath('//div[@class="property-info__market-status"]/a/@href')[0]
       listing_details = get_sale_listing_details(listing_url,get_user_agent(),proxy)
 
+    lon =  wd.execute_script('return REA.lon')
+    lat = wd.execute_script('return REA.lat')
+
 
     timelines = parser.xpath('//ul[@class="property-timeline__container with_all"]/li')
     data_set = []
@@ -361,7 +369,9 @@ def get_property_details(url,proxy):
         listing_details['property_type'],
         listing_details['from_price'],
         listing_details['to_price'],
-        listing_details['url']
+        listing_details['url'],
+        lon,
+        lat
         ]
       data_set.append(data)
     else:
@@ -386,7 +396,9 @@ def get_property_details(url,proxy):
         listing_details['property_type'],
         listing_details['from_price'],
         listing_details['to_price'],
-        listing_details['url']
+        listing_details['url'],
+        lon,
+        lat
         ]
       data_set.append(data)
 
@@ -403,7 +415,7 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
       outfile = outFileName
       count = 1
       with codecs.open(outfile, 'w','utf-8') as csvfile:
-        header = '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (
+        header = '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (
           'Short Address',
           'Suburub', 
           'PostCode', 
@@ -424,7 +436,9 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
           'For Sale Property Type',
           'Sale From Price',
           'Sale To Price',
-          'Sale Url')
+          'Sale Url',
+          'Lon',
+          'Lat')
         csvfile.write(header)
         for  street_url_path,street_name in get_streets(streetsUrl,get_user_agent(),proxy).items():
           street_url = realEstateSuburubBaseUrl + street_url_path
@@ -445,7 +459,7 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
             try:
               property_data_set = get_property_details(property_url,proxy)
               for property_data in property_data_set:
-                data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s\n' % (
+                data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,%s,%s\n' % (
                   property_data[0],
                   property_data[1],
                   property_data[2],
@@ -466,7 +480,9 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
                   property_data[16],
                   property_data[17],
                   property_data[18],
-                  property_data[19]
+                  property_data[19],
+                  property_data[20],
+                  property_data[21]
                   )
                 csvfile.write(data)
                 count+=1
@@ -484,14 +500,23 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
       #We will just skip retries as its beyond the scope of this tutorial and we are only downloading a single url 
 
 
-def scrapeStreetUrls(street_urls,  outFileName):
-  logging.info('Scraping properties from street urls')
+def scrapeStreets(streets, realEstateSuburubBaseUrl, outFileName):
+  logging.info('Scraping properties from streets provided')
+  streets_dict = {}
+  for street in streets:
+      logging.info(re.sub('\s+',' ',street))
+      street_name = re.sub('\s+',' ',street).lower().replace(' ', '-')
+      for key, value in street_name_abrv_map.items():
+        street_name = street_name.replace("-" + key, "-" + value)
+      streets_dict[street_name] = re.sub('\s+',' ',street)
+
   try:
       outfile = outFileName
       count = 1
       with codecs.open(outfile, 'a','utf-8') as csvfile:
-        for  street_url in street_urls:
-          logging.info('processing street url :' + street_url)
+        for  street_url_path,street_name in streets_dict.items():
+          street_url = realEstateSuburubBaseUrl + street_url_path
+          logging.info('processing street :' + street_name)
           properties = get_properties_in_street(street_url,get_user_agent(),proxy)
           if not  properties:
             logging.info("No porperties for :" + street_url )
@@ -499,7 +524,7 @@ def scrapeStreetUrls(street_urls,  outFileName):
             try:
               property_data_set = get_property_details(property_url,proxy)
               for property_data in property_data_set:
-                data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s\n' % (
+                data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,%s,%s\n' % (
                     property_data[0],
                     property_data[1],
                     property_data[2],
@@ -520,7 +545,9 @@ def scrapeStreetUrls(street_urls,  outFileName):
                     property_data[16],
                     property_data[17],
                     property_data[18],
-                    property_data[19]
+                    property_data[19],
+                    property_data[20],
+                    property_data[21]
                     )
                 csvfile.write(data)
                 count+=1
@@ -546,7 +573,7 @@ def scrapePropertyUrls(property_urls,  outFileName):
           try:
             property_data_set = get_property_details(property_url,proxy)
             for property_data in property_data_set:
-              data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s\n' % (
+              data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,%s,%s\n' % (
                     property_data[0],
                     property_data[1],
                     property_data[2],
@@ -567,7 +594,9 @@ def scrapePropertyUrls(property_urls,  outFileName):
                     property_data[16],
                     property_data[17],
                     property_data[18],
-                    property_data[19]
+                    property_data[19],
+                    property_data[20],
+                    property_data[21]
                     )
               csvfile.write(data)
               count+=1
@@ -582,28 +611,48 @@ def scrapePropertyUrls(property_urls,  outFileName):
     logging.error(e, exc_info=True)
 
 
-configLog("Croydon")
-#scrapeForSuburb("https://geographic.org/streetview/australia/vic/croydon.html","https://www.realestate.com.au/vic/croydon-3136/","Croydon","croydon_houses.csv")
+configLog("Bayswater North")
+scrapeForSuburb("http://www.street-directory.com.au/vic/bayswater-north","https://www.realestate.com.au/vic/bayswater-north-3153/","Bayswater North","bayswater_north_houses.csv")
 
-# scrapeStreetUrls([
-#   "https://www.realestate.com.au/vic/croydon-south-3136/azarow-cct",
-#   "https://www.realestate.com.au/vic/croydon-south-3136/belmont-rd-e",
-#   "https://www.realestate.com.au/vic/croydon-south-3136/belmont-rd-w",
-#   "https://www.realestate.com.au/vic/croydon-south-3136/blazey-rd",
-#   "https://www.realestate.com.au/vic/croydon-south-3136/the-common",
-#   "https://www.realestate.com.au/vic/croydon-south-3136/the-mount",
-#   "https://www.realestate.com.au/vic/croydon-south-3136/the-place"
-# ],"croydon_south_houses.csv")
+# scrapeStreets([
+#   "Kathleen Close",
+#   "Kendale Court",
+#   "Keswick Crescent",
+#   "Kite Avenue",
+#   "Koorong Avenue",
+#   "Kyamba Court",
+#   "Leighton Road",
+#   "Lillian Close",
+#   "Market Drive",
+#   "Marraroo Close",
+#   "Mcgivern Court",
+#   "Nicole Close",
+#   "Pardin Court",
+#   "Parkstone Drive",
+#   "Pellong Court",
+#   "Penrith Close",
+#   "Pointside Avenue",
+#   "Ramsay Street",
+#   "Retford Close",
+#   "Royan Place",
+#   "Sara Court",
+#   "Sherbourne Avenue",
+#   "Sherman Drive",
+#   "Skye Court",
+#   "Stafford Court",
+#   "Stephenson Road",
+#   "Strathmiglo Court",
+#   "Swanley Avenue",
+#   "The Heathmont",
+#   "Tiverton Court",
+#   "Toolimerin Avenue",
+#   "Turbo Drive",
+#   "Wattle Valley Court",
+#   "Wimborne Court",
+#   "Winchester Drive",
+#   "Wonthulong Drive"
+# ],"https://www.realestate.com.au/vic/bayswater-north-3153/","bayswater_north_houses.csv")
 
-scrapePropertyUrls([
-  "https://www.realestate.com.au/property/7a-allendale-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/14a-aminga-ct-croydon-vic-3136",
-  "https://www.realestate.com.au/property/1a-cecil-cct-croydon-vic-3136",
-  "https://www.realestate.com.au/property/16-como-cl-croydon-vic-3136",
-  "https://www.realestate.com.au/property/3-dixon-ave-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-1-59-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-2-9-laird-st-croydon-vic-3136",
-  "https://www.realestate.com.au/property/1-paul-st-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-3-2-rawlinson-st-croydon-vic-3136",
-  "https://www.realestate.com.au/property/47-surrey-rd-e-croydon-vic-3136"
-],"croydon_houses.csv")
+# scrapePropertyUrls([
+#   "https://www.realestate.com.au/property/unit-1-29-illawara-cres-bayswater-north-vic-3153"
+# ],"bayswater_north_houses.csv")

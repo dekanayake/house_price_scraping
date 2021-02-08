@@ -210,5 +210,7 @@ def update_geo(dataInFileName,dataOutFileName):
 
 
 
-configLog('Croydon')
-update_geo('croydon_houses.csv','croydon_houses_with_geo.csv')
+
+
+configLog('Croydon South')
+update_geo('croydon_south_houses.csv','croydon_south_houses_with_geo.csv')
