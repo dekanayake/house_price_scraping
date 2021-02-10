@@ -120,12 +120,18 @@ def get_user_agent():
     return user_agent
 
 
-def get_streets(url,user_agent,proxy):
+def get_streets(url,start_from_street,user_agent,proxy):
     response = requests.get(url,headers={
         'User-Agent': get_user_agent(),
     })
     parser = fromstring(response.text)
     streets = {}
+    ignore_street = False
+    start_from_street_enable = False
+    if start_from_street:
+      logging.info('will start from street ' + start_from_street)
+      start_from_street_enable = True
+      ignore_street = True
     logging.info("------------Extracting streets------------")
     for street_first_letter_url in parser.xpath('//div[@id="alphabet"]/a/@href'):
       response = requests.get(street_first_letter_url,headers={
@@ -133,12 +139,19 @@ def get_streets(url,user_agent,proxy):
       })
       parser = fromstring(response.text)
       for street in parser.xpath('//div[@id="showhide"]/div[@id="suburbs_by_id"]/ul/li/a/text()'):
+        if start_from_street_enable and start_from_street == re.sub('\s+',' ',street):
+          ignore_street = False
+        if start_from_street_enable and ignore_street:
+          logging.info('ignoring the street ' + re.sub('\s+',' ',street))
+          continue
         logging.info(re.sub('\s+',' ',street))
         street_name = re.sub('\s+',' ',street).lower().replace(' ', '-')
         for key, value in street_name_abrv_map.items():
           street_name = street_name.replace("-" + key, "-" + value)
         streets[street_name] = re.sub('\s+',' ',street)
     return streets
+
+   
 
 def get_mock_streets(url,user_agent,proxy):
     streets = {}
@@ -408,13 +421,14 @@ def get_property_details(url,proxy):
 
 
 
-def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
+def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,start_street_name,update):
   try:  
       # response = requests.get(url,proxies={"http": proxy, "https": proxy},headers=headers)
       # print(response.json())
       outfile = outFileName
       count = 1
-      with codecs.open(outfile, 'w','utf-8') as csvfile:
+      file_mode = 'a' if update else 'w'
+      with codecs.open(outfile, file_mode,'utf-8') as csvfile:
         header = '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' % (
           'Short Address',
           'Suburub', 
@@ -439,8 +453,9 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
           'Sale Url',
           'Lon',
           'Lat')
-        csvfile.write(header)
-        for  street_url_path,street_name in get_streets(streetsUrl,get_user_agent(),proxy).items():
+        if not update:
+          csvfile.write(header)
+        for  street_url_path,street_name in get_streets(streetsUrl,start_street_name,get_user_agent(),proxy).items():
           street_url = realEstateSuburubBaseUrl + street_url_path
           logging.info('processing street :' + street_name)
           properties = get_properties_in_street(street_url,get_user_agent(),proxy)
@@ -612,7 +627,7 @@ def scrapePropertyUrls(property_urls,  outFileName):
 
 
 configLog("Bayswater North")
-scrapeForSuburb("http://www.street-directory.com.au/vic/bayswater-north","https://www.realestate.com.au/vic/bayswater-north-3153/","Bayswater North","bayswater_north_houses.csv")
+scrapeForSuburb("http://www.street-directory.com.au/vic/bayswater-north","https://www.realestate.com.au/vic/bayswater-north-3153/","Bayswater North","bayswater_north_houses.csv","Huntingdon Avenue",True)
 
 # scrapeStreets([
 #   "Kathleen Close",
