@@ -20,9 +20,10 @@ import traceback
 import codecs
 import logging
 from datetime import datetime
-from tinydb import TinyDB, Query
 import urllib.parse
 from itertools import permutations 
+from db import DB
+
 
 def  configLog(suburbName):
   fileNamePrefix = suburbName.lower()
@@ -34,6 +35,7 @@ def  configLog(suburbName):
       level=logging.INFO,
       datefmt='%Y-%m-%d %H:%M:%S')
   logging.info('Crawling started for  ' + suburbName)
+
 
 software_names_windows = [SoftwareName.CHROME.value,SoftwareName.FIREFOX.value,SoftwareName.EDGE.value,SoftwareName.OPERA.value]
 operating_systems_windows = [OperatingSystem.WINDOWS.value,OperatingSystem.WINDOWS_MOBILE.value,OperatingSystem.WINDOWS_PHONE.value] 
@@ -91,6 +93,8 @@ month = {
   'December':12,
 }
 
+
+
 def get_proxies():
     url = 'https://free-proxy-list.net/'
     response = requests.get(url)
@@ -120,7 +124,7 @@ def get_user_agent():
     return user_agent
 
 
-def get_streets(url,start_from_street,user_agent,proxy):
+def get_streets(url,start_from_street,user_agent,proxy,scrapingDB):
     response = requests.get(url,headers={
         'User-Agent': get_user_agent(),
     })
@@ -128,10 +132,16 @@ def get_streets(url,start_from_street,user_agent,proxy):
     streets = {}
     ignore_street = False
     start_from_street_enable = False
+    processingStreets = scrapingDB.getStreetsByStatus('processing')
     if start_from_street:
-      logging.info('will start from street ' + start_from_street)
       start_from_street_enable = True
       ignore_street = True
+    if processingStreets:
+      start_from_street = processingStreets[0]
+      start_from_street_enable = True
+      ignore_street = True
+    if start_from_street_enable:
+      logging.info('will start from street ' + start_from_street)
     logging.info("------------Extracting streets------------")
     for street_first_letter_url in parser.xpath('//div[@id="alphabet"]/a/@href'):
       response = requests.get(street_first_letter_url,headers={
@@ -145,6 +155,7 @@ def get_streets(url,start_from_street,user_agent,proxy):
           logging.info('ignoring the street ' + re.sub('\s+',' ',street))
           continue
         logging.info(re.sub('\s+',' ',street))
+        scrapingDB.insertStreet(re.sub('\s+',' ',street))
         street_name = re.sub('\s+',' ',street).lower().replace(' ', '-')
         for key, value in street_name_abrv_map.items():
           street_name = street_name.replace("-" + key, "-" + value)
@@ -421,10 +432,21 @@ def get_property_details(url,proxy):
 
 
 
-def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,start_street_name,update):
+def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,start_street_name):
+  scrapingDB = DB(subrubName)
   try:  
       # response = requests.get(url,proxies={"http": proxy, "https": proxy},headers=headers)
       # print(response.json())
+      suburubSaved = scrapingDB.getSuburub(subrubName)
+      update = False
+      if (suburubSaved and suburubSaved['status'] != 'processed') or start_street_name:
+        update = True
+      elif(suburubSaved  and suburubSaved['status'] == 'processed'):
+        logging.info('suburub '+ suburubName + ' is  already  processed' )
+        return
+      else:
+        scrapingDB.insertSuburb(subrubName)
+
       outfile = outFileName
       count = 1
       file_mode = 'a' if update else 'w'
@@ -455,9 +477,10 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,s
           'Lat')
         if not update:
           csvfile.write(header)
-        for  street_url_path,street_name in get_streets(streetsUrl,start_street_name,get_user_agent(),proxy).items():
+        for  street_url_path,street_name in get_streets(streetsUrl,start_street_name,get_user_agent(),proxy,scrapingDB).items():
           street_url = realEstateSuburubBaseUrl + street_url_path
           logging.info('processing street :' + street_name)
+          scrapingDB.updateStreet(street_name,'processing')
           properties = get_properties_in_street(street_url,get_user_agent(),proxy)
           if not  properties:
             logging.info("No porperties for :" + street_url + " street name " + street_name + " finding the url through missing street method")
@@ -472,6 +495,7 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,s
 
           for property_url in properties:
             try:
+              scrapingDB.insert_property(street_name,property_url)
               property_data_set = get_property_details(property_url,proxy)
               for property_data in property_data_set:
                 data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,%s,%s\n' % (
@@ -500,17 +524,23 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,s
                   property_data[21]
                   )
                 csvfile.write(data)
+                scrapingDB.update_property(street_name,property_url,'processed')
                 count+=1
                 if count == 100:
                   csvfile.flush()
                   count = 0
             except Exception as e:
               logging.error("Error occured property url : " + property_url)
+              scrapingDB.update_property(street_name,property_url,'failed')
               logging.error(e, exc_info=True)
+          scrapingDB.updateStreet(street_name,'processed')
+          scrapingDB.remove_properties(street_name)
+      scrapingDB.updateSuburb(subrubName,'processed')    
   except Exception as e:
       logging.error("Error occured")
       traceback.print_exc() 
       logging.error(e, exc_info=True)
+      scrapingDB.updateSuburb(subrubName,'failed')
       #Most free proxies will often get connection errors. You will have retry the entire request using another proxy to work. 
       #We will just skip retries as its beyond the scope of this tutorial and we are only downloading a single url 
 
@@ -577,9 +607,15 @@ def scrapeStreets(streets, realEstateSuburubBaseUrl, outFileName):
     logging.error(e, exc_info=True)
 
 
-def scrapePropertyUrls(property_urls,  outFileName):
+def scrapeFailedPropertyUrls(subrubName,  outFileName):
   logging.info('Scraping properties from urls')
+  scrapingDB = DB(subrubName)
   try:
+      failed_properties = scrapingDB.get_failed_properties()
+      logging.info('failed properties count :' + str(len(failed_properties)))
+      property_urls = []
+      for failed_property in failed_properties:
+        property_urls.append(failed_property['url'])
       outfile = outFileName
       count = 1
       with codecs.open(outfile, 'a','utf-8') as csvfile:
@@ -618,6 +654,7 @@ def scrapePropertyUrls(property_urls,  outFileName):
               if count == 100:
                 csvfile.flush()
                 count = 0
+            scrapingDB.update_property_by_url(property_url,'processed')
           except Exception as e:
             logging.error("Error occured property url : " + property_url)
             logging.error(e, exc_info=True)
@@ -626,48 +663,30 @@ def scrapePropertyUrls(property_urls,  outFileName):
     logging.error(e, exc_info=True)
 
 
-configLog("Bayswater North")
-scrapeForSuburb("http://www.street-directory.com.au/vic/bayswater-north","https://www.realestate.com.au/vic/bayswater-north-3153/","Bayswater North","bayswater_north_houses.csv","Huntingdon Avenue",True)
+configLog("Croydon South")
+# scrapeForSuburb("http://www.street-directory.com.au/vic/croydon_south","https://www.realestate.com.au/vic/croydon-south-3136/","Croydon South","croydon_south_houses.csv",None)
 
-# scrapeStreets([
-#   "Kathleen Close",
-#   "Kendale Court",
-#   "Keswick Crescent",
-#   "Kite Avenue",
-#   "Koorong Avenue",
-#   "Kyamba Court",
-#   "Leighton Road",
-#   "Lillian Close",
-#   "Market Drive",
-#   "Marraroo Close",
-#   "Mcgivern Court",
-#   "Nicole Close",
-#   "Pardin Court",
-#   "Parkstone Drive",
-#   "Pellong Court",
-#   "Penrith Close",
-#   "Pointside Avenue",
-#   "Ramsay Street",
-#   "Retford Close",
-#   "Royan Place",
-#   "Sara Court",
-#   "Sherbourne Avenue",
-#   "Sherman Drive",
-#   "Skye Court",
-#   "Stafford Court",
-#   "Stephenson Road",
-#   "Strathmiglo Court",
-#   "Swanley Avenue",
-#   "The Heathmont",
-#   "Tiverton Court",
-#   "Toolimerin Avenue",
-#   "Turbo Drive",
-#   "Wattle Valley Court",
-#   "Wimborne Court",
-#   "Winchester Drive",
-#   "Wonthulong Drive"
-# ],"https://www.realestate.com.au/vic/bayswater-north-3153/","bayswater_north_houses.csv")
+scrapeFailedPropertyUrls("Croydon South","croydon_south_houses.csv")
 
 # scrapePropertyUrls([
-#   "https://www.realestate.com.au/property/unit-1-29-illawara-cres-bayswater-north-vic-3153"
+#   "https://www.realestate.com.au/property/6-tower-ct-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/5-tower-ct-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/3-tower-ct-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/8-tower-ct-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/2-tower-ct-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/7-tower-ct-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/1a-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/9-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/2-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/2b-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/8-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/4-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/6-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/10-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/2a-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/5-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/3-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/1-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/unit-2-2-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/7a-waratah-ave-bayswater-north-vic-3153"
 # ],"bayswater_north_houses.csv")
