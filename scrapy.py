@@ -515,7 +515,7 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,s
       #We will just skip retries as its beyond the scope of this tutorial and we are only downloading a single url 
 
 
-def scrapeStreets(streets, realEstateSuburubBaseUrl, outFileName):
+def scrapeStreets(streets, realEstateSuburubBaseUrl,subrubName, outFileName):
   logging.info('Scraping properties from streets provided')
   streets_dict = {}
   for street in streets:
@@ -534,7 +534,13 @@ def scrapeStreets(streets, realEstateSuburubBaseUrl, outFileName):
           logging.info('processing street :' + street_name)
           properties = get_properties_in_street(street_url,get_user_agent(),proxy)
           if not  properties:
-            logging.info("No porperties for :" + street_url )
+            logging.info("No porperties for :" + street_url + " street name " + street_name + " finding the url through missing street method")
+            updated_property_url = get_missing_street_url(street_name,subrubName)
+            if updated_property_url:
+              logging.info('processing for resolved street :' + updated_property_url)
+              properties = get_properties_in_street(updated_property_url,get_user_agent(),proxy)
+              if not  properties:
+                logging.info("No porperties for :" + street_url )
           for property_url in properties:
             try:
               property_data_set = get_property_details(property_url,proxy)
@@ -563,7 +569,7 @@ def scrapeStreets(streets, realEstateSuburubBaseUrl, outFileName):
                     property_data[19],
                     property_data[20],
                     property_data[21]
-                    )
+                      )
                 csvfile.write(data)
                 count+=1
                 if count == 100:
@@ -626,48 +632,74 @@ def scrapePropertyUrls(property_urls,  outFileName):
     logging.error(e, exc_info=True)
 
 
-configLog("Bayswater North")
-scrapeForSuburb("http://www.street-directory.com.au/vic/bayswater-north","https://www.realestate.com.au/vic/bayswater-north-3153/","Bayswater North","bayswater_north_houses.csv","Huntingdon Avenue",True)
+configLog("Croydon")
+# scrapeForSuburb("http://www.street-directory.com.au/vic/croydon","https://www.realestate.com.au/vic/croydon-3136/","Croydon","croydon_houses.csv","Jesmond Road",True)
 
 # scrapeStreets([
-#   "Kathleen Close",
-#   "Kendale Court",
-#   "Keswick Crescent",
-#   "Kite Avenue",
-#   "Koorong Avenue",
-#   "Kyamba Court",
-#   "Leighton Road",
-#   "Lillian Close",
-#   "Market Drive",
-#   "Marraroo Close",
-#   "Mcgivern Court",
-#   "Nicole Close",
-#   "Pardin Court",
-#   "Parkstone Drive",
-#   "Pellong Court",
-#   "Penrith Close",
-#   "Pointside Avenue",
-#   "Ramsay Street",
-#   "Retford Close",
-#   "Royan Place",
-#   "Sara Court",
-#   "Sherbourne Avenue",
-#   "Sherman Drive",
-#   "Skye Court",
-#   "Stafford Court",
-#   "Stephenson Road",
-#   "Strathmiglo Court",
-#   "Swanley Avenue",
-#   "The Heathmont",
-#   "Tiverton Court",
-#   "Toolimerin Avenue",
-#   "Turbo Drive",
-#   "Wattle Valley Court",
-#   "Wimborne Court",
-#   "Winchester Drive",
-#   "Wonthulong Drive"
-# ],"https://www.realestate.com.au/vic/bayswater-north-3153/","bayswater_north_houses.csv")
+#   "Gary Court",
+#   "Gladys Grove",
+#   "Glamis Court",
+#   "Glen Avenue"
+# ],"https://www.realestate.com.au/vic/croydon-3136/","Croydon","croydon_houses.csv")
 
-# scrapePropertyUrls([
-#   "https://www.realestate.com.au/property/unit-1-29-illawara-cres-bayswater-north-vic-3153"
-# ],"bayswater_north_houses.csv")
+scrapePropertyUrls([
+  "https://www.realestate.com.au/property/12-gairns-ct-croydon-vic-3136",
+  "https://www.realestate.com.au/property/7-gleneagles-ct-croydon-vic-3136",
+  "https://www.realestate.com.au/property/3-gleneagles-ct-croydon-vic-3136",
+  "https://www.realestate.com.au/property/16-gleneagles-ct-croydon-vic-3136",
+  "https://www.realestate.com.au/property/11-gleneagles-ct-croydon-vic-3136",
+  "https://www.realestate.com.au/property/13-gleneagles-ct-croydon-vic-3136",
+  "https://www.realestate.com.au/property/8-gleneagles-ct-croydon-vic-3136",
+  "https://www.realestate.com.au/property/1-gleneagles-ct-croydon-vic-3136",
+  "https://www.realestate.com.au/property/16a-glenora-ave-croydon-vic-3136",
+  "https://www.realestate.com.au/property/21-grand-view-ave-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-2-34-jackson-st-croydon-vic-3136",
+  "https://www.realestate.com.au/property/37-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/57-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-2-7-9-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-6-7-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-2-12-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/28-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/32a-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-1-16-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/42-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/56-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-12-18-20-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-1-28-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/29-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/5a-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-10-18-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/48-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/67-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-6-7-9-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-3-6-8-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/23-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/49-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-2-19-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-2-3-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-4-22-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-1-7-9-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-3-59-jesmond-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-3-29-lincoln-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/82-lincoln-rd-croydon-vic-3136",
+  "https://www.realestate.com.au/property/73-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-1-67-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/61b-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/86-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-2-63-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/77a-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/84a-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-4-80-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/55-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/84-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-3-120-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/88-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-1-107-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-1-57-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-3-107-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/52-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/111-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/105-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/61a-mount-view-pde-croydon-vic-3136",
+  "https://www.realestate.com.au/property/unit-3-85-mount-view-pde-croydon-vic-3136"
+],"croydon_houses.csv")
