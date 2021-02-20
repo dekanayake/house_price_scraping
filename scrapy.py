@@ -20,9 +20,10 @@ import traceback
 import codecs
 import logging
 from datetime import datetime
-from tinydb import TinyDB, Query
 import urllib.parse
 from itertools import permutations 
+from db import DB
+
 
 def  configLog(suburbName):
   fileNamePrefix = suburbName.lower()
@@ -34,6 +35,7 @@ def  configLog(suburbName):
       level=logging.INFO,
       datefmt='%Y-%m-%d %H:%M:%S')
   logging.info('Crawling started for  ' + suburbName)
+
 
 software_names_windows = [SoftwareName.CHROME.value,SoftwareName.FIREFOX.value,SoftwareName.EDGE.value,SoftwareName.OPERA.value]
 operating_systems_windows = [OperatingSystem.WINDOWS.value,OperatingSystem.WINDOWS_MOBILE.value,OperatingSystem.WINDOWS_PHONE.value] 
@@ -91,6 +93,8 @@ month = {
   'December':12,
 }
 
+
+
 def get_proxies():
     url = 'https://free-proxy-list.net/'
     response = requests.get(url)
@@ -120,7 +124,7 @@ def get_user_agent():
     return user_agent
 
 
-def get_streets(url,start_from_street,user_agent,proxy):
+def get_streets(url,start_from_street,user_agent,proxy,scrapingDB):
     response = requests.get(url,headers={
         'User-Agent': get_user_agent(),
     })
@@ -128,10 +132,16 @@ def get_streets(url,start_from_street,user_agent,proxy):
     streets = {}
     ignore_street = False
     start_from_street_enable = False
+    processingStreets = scrapingDB.getStreetsByStatus('processing')
     if start_from_street:
-      logging.info('will start from street ' + start_from_street)
       start_from_street_enable = True
       ignore_street = True
+    if processingStreets:
+      start_from_street = processingStreets[0]
+      start_from_street_enable = True
+      ignore_street = True
+    if start_from_street_enable:
+      logging.info('will start from street ' + start_from_street)
     logging.info("------------Extracting streets------------")
     for street_first_letter_url in parser.xpath('//div[@id="alphabet"]/a/@href'):
       response = requests.get(street_first_letter_url,headers={
@@ -145,6 +155,7 @@ def get_streets(url,start_from_street,user_agent,proxy):
           logging.info('ignoring the street ' + re.sub('\s+',' ',street))
           continue
         logging.info(re.sub('\s+',' ',street))
+        scrapingDB.insertStreet(re.sub('\s+',' ',street))
         street_name = re.sub('\s+',' ',street).lower().replace(' ', '-')
         for key, value in street_name_abrv_map.items():
           street_name = street_name.replace("-" + key, "-" + value)
@@ -421,10 +432,21 @@ def get_property_details(url,proxy):
 
 
 
-def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,start_street_name,update):
+def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,start_street_name):
+  scrapingDB = DB(subrubName)
   try:  
       # response = requests.get(url,proxies={"http": proxy, "https": proxy},headers=headers)
       # print(response.json())
+      suburubSaved = scrapingDB.getSuburub(subrubName)
+      update = False
+      if (suburubSaved and suburubSaved['status'] != 'processed') or start_street_name:
+        update = True
+      elif(suburubSaved  and suburubSaved['status'] == 'processed'):
+        logging.info('suburub '+ suburubName + ' is  already  processed' )
+        return
+      else:
+        scrapingDB.insertSuburb(subrubName)
+
       outfile = outFileName
       count = 1
       file_mode = 'a' if update else 'w'
@@ -455,9 +477,10 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,s
           'Lat')
         if not update:
           csvfile.write(header)
-        for  street_url_path,street_name in get_streets(streetsUrl,start_street_name,get_user_agent(),proxy).items():
+        for  street_url_path,street_name in get_streets(streetsUrl,start_street_name,get_user_agent(),proxy,scrapingDB).items():
           street_url = realEstateSuburubBaseUrl + street_url_path
           logging.info('processing street :' + street_name)
+          scrapingDB.updateStreet(street_name,'processing')
           properties = get_properties_in_street(street_url,get_user_agent(),proxy)
           if not  properties:
             logging.info("No porperties for :" + street_url + " street name " + street_name + " finding the url through missing street method")
@@ -472,6 +495,7 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,s
 
           for property_url in properties:
             try:
+              scrapingDB.insert_property(street_name,property_url)
               property_data_set = get_property_details(property_url,proxy)
               for property_data in property_data_set:
                 data = '%s,%s,%s,%s,%s,%i,%i,%i,%f,%s,%s,%s,%i,%i,%f,%s,%r,%s,%f,%f,%s,%s,%s\n' % (
@@ -500,17 +524,23 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,s
                   property_data[21]
                   )
                 csvfile.write(data)
+                scrapingDB.update_property(street_name,property_url,'processed')
                 count+=1
                 if count == 100:
                   csvfile.flush()
                   count = 0
             except Exception as e:
               logging.error("Error occured property url : " + property_url)
+              scrapingDB.update_property(street_name,property_url,'failed')
               logging.error(e, exc_info=True)
+          scrapingDB.updateStreet(street_name,'processed')
+          scrapingDB.remove_properties(street_name)
+      scrapingDB.updateSuburb(subrubName,'processed')    
   except Exception as e:
       logging.error("Error occured")
       traceback.print_exc() 
       logging.error(e, exc_info=True)
+      scrapingDB.updateSuburb(subrubName,'failed')
       #Most free proxies will often get connection errors. You will have retry the entire request using another proxy to work. 
       #We will just skip retries as its beyond the scope of this tutorial and we are only downloading a single url 
 
@@ -583,9 +613,15 @@ def scrapeStreets(streets, realEstateSuburubBaseUrl,subrubName, outFileName):
     logging.error(e, exc_info=True)
 
 
-def scrapePropertyUrls(property_urls,  outFileName):
+def scrapeFailedPropertyUrls(subrubName,  outFileName):
   logging.info('Scraping properties from urls')
+  scrapingDB = DB(subrubName)
   try:
+      failed_properties = scrapingDB.get_failed_properties()
+      logging.info('failed properties count :' + str(len(failed_properties)))
+      property_urls = []
+      for failed_property in failed_properties:
+        property_urls.append(failed_property['url'])
       outfile = outFileName
       count = 1
       with codecs.open(outfile, 'a','utf-8') as csvfile:
@@ -624,6 +660,7 @@ def scrapePropertyUrls(property_urls,  outFileName):
               if count == 100:
                 csvfile.flush()
                 count = 0
+            scrapingDB.update_property_by_url(property_url,'processed')
           except Exception as e:
             logging.error("Error occured property url : " + property_url)
             logging.error(e, exc_info=True)
@@ -632,74 +669,30 @@ def scrapePropertyUrls(property_urls,  outFileName):
     logging.error(e, exc_info=True)
 
 
-configLog("Croydon")
-# scrapeForSuburb("http://www.street-directory.com.au/vic/croydon","https://www.realestate.com.au/vic/croydon-3136/","Croydon","croydon_houses.csv","Jesmond Road",True)
+configLog("Croydon South")
+# scrapeForSuburb("http://www.street-directory.com.au/vic/croydon_south","https://www.realestate.com.au/vic/croydon-south-3136/","Croydon South","croydon_south_houses.csv",None)
 
-# scrapeStreets([
-#   "Gary Court",
-#   "Gladys Grove",
-#   "Glamis Court",
-#   "Glen Avenue"
-# ],"https://www.realestate.com.au/vic/croydon-3136/","Croydon","croydon_houses.csv")
+scrapeFailedPropertyUrls("Croydon South","croydon_south_houses.csv")
 
-scrapePropertyUrls([
-  "https://www.realestate.com.au/property/12-gairns-ct-croydon-vic-3136",
-  "https://www.realestate.com.au/property/7-gleneagles-ct-croydon-vic-3136",
-  "https://www.realestate.com.au/property/3-gleneagles-ct-croydon-vic-3136",
-  "https://www.realestate.com.au/property/16-gleneagles-ct-croydon-vic-3136",
-  "https://www.realestate.com.au/property/11-gleneagles-ct-croydon-vic-3136",
-  "https://www.realestate.com.au/property/13-gleneagles-ct-croydon-vic-3136",
-  "https://www.realestate.com.au/property/8-gleneagles-ct-croydon-vic-3136",
-  "https://www.realestate.com.au/property/1-gleneagles-ct-croydon-vic-3136",
-  "https://www.realestate.com.au/property/16a-glenora-ave-croydon-vic-3136",
-  "https://www.realestate.com.au/property/21-grand-view-ave-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-2-34-jackson-st-croydon-vic-3136",
-  "https://www.realestate.com.au/property/37-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/57-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-2-7-9-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-6-7-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-2-12-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/28-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/32a-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-1-16-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/42-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/56-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-12-18-20-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-1-28-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/29-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/5a-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-10-18-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/48-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/67-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-6-7-9-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-3-6-8-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/23-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/49-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-2-19-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-2-3-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-4-22-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-1-7-9-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-3-59-jesmond-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-3-29-lincoln-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/82-lincoln-rd-croydon-vic-3136",
-  "https://www.realestate.com.au/property/73-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-1-67-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/61b-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/86-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-2-63-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/77a-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/84a-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-4-80-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/55-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/84-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-3-120-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/88-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-1-107-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-1-57-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-3-107-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/52-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/111-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/105-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/61a-mount-view-pde-croydon-vic-3136",
-  "https://www.realestate.com.au/property/unit-3-85-mount-view-pde-croydon-vic-3136"
-],"croydon_houses.csv")
+# scrapePropertyUrls([
+#   "https://www.realestate.com.au/property/6-tower-ct-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/5-tower-ct-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/3-tower-ct-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/8-tower-ct-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/2-tower-ct-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/7-tower-ct-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/1a-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/9-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/2-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/2b-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/8-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/4-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/6-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/10-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/2a-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/5-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/3-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/1-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/unit-2-2-waratah-ave-bayswater-north-vic-3153",
+#   "https://www.realestate.com.au/property/7a-waratah-ave-bayswater-north-vic-3153"
+# ],"bayswater_north_houses.csv")
