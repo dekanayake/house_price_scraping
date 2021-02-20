@@ -124,7 +124,7 @@ def get_user_agent():
     return user_agent
 
 
-def get_streets(url,start_from_street,user_agent,proxy,scrapingDB):
+def get_streets(url,user_agent,proxy,scrapingDB,update):
     response = requests.get(url,headers={
         'User-Agent': get_user_agent(),
     })
@@ -132,27 +132,15 @@ def get_streets(url,start_from_street,user_agent,proxy,scrapingDB):
     streets = {}
     ignore_street = False
     start_from_street_enable = False
-    processingStreets = scrapingDB.getStreetsByStatus('processing')
-    if start_from_street:
-      start_from_street_enable = True
-      ignore_street = True
-    if processingStreets:
-      start_from_street = processingStreets[0]
-      start_from_street_enable = True
-      ignore_street = True
-    if start_from_street_enable:
-      logging.info('will start from street ' + start_from_street)
-    logging.info("------------Extracting streets------------")
+    processingStreets = scrapingDB.getStreetsByStatus('processing') + scrapingDB.getStreetsByStatus('failed')
     for street_first_letter_url in parser.xpath('//div[@id="alphabet"]/a/@href'):
       response = requests.get(street_first_letter_url,headers={
         'User-Agent': get_user_agent(),
       })
       parser = fromstring(response.text)
       for street in parser.xpath('//div[@id="showhide"]/div[@id="suburbs_by_id"]/ul/li/a/text()'):
-        if start_from_street_enable and start_from_street == re.sub('\s+',' ',street):
-          ignore_street = False
-        if start_from_street_enable and ignore_street:
-          logging.info('ignoring the street ' + re.sub('\s+',' ',street))
+        if update and re.sub('\s+',' ',street) not in processingStreets:
+          logging.info('ignoring the street because it is already processed' + re.sub('\s+',' ',street))
           continue
         logging.info(re.sub('\s+',' ',street))
         scrapingDB.insertStreet(re.sub('\s+',' ',street))
@@ -432,17 +420,17 @@ def get_property_details(url,proxy):
 
 
 
-def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,start_street_name):
+def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
   scrapingDB = DB(subrubName)
   try:  
       # response = requests.get(url,proxies={"http": proxy, "https": proxy},headers=headers)
       # print(response.json())
-      suburubSaved = scrapingDB.getSuburub(subrubName)
+      suburbSaved = scrapingDB.getSuburub(subrubName)
       update = False
-      if (suburubSaved and suburubSaved['status'] != 'processed') or start_street_name:
+      if (suburbSaved and suburbSaved['status'] != 'processed'):
         update = True
-      elif(suburubSaved  and suburubSaved['status'] == 'processed'):
-        logging.info('suburub '+ suburubName + ' is  already  processed' )
+      elif(suburbSaved  and suburbSaved['status'] == 'processed'):
+        logging.info('suburub '+ subrubName + ' is  already  processed' )
         return
       else:
         scrapingDB.insertSuburb(subrubName)
@@ -477,7 +465,7 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName,s
           'Lat')
         if not update:
           csvfile.write(header)
-        for  street_url_path,street_name in get_streets(streetsUrl,start_street_name,get_user_agent(),proxy,scrapingDB).items():
+        for  street_url_path,street_name in get_streets(streetsUrl,get_user_agent(),proxy,scrapingDB,update).items():
           street_url = realEstateSuburubBaseUrl + street_url_path
           logging.info('processing street :' + street_name)
           scrapingDB.updateStreet(street_name,'processing')
@@ -669,30 +657,9 @@ def scrapeFailedPropertyUrls(subrubName,  outFileName):
     logging.error(e, exc_info=True)
 
 
-configLog("Croydon South")
-# scrapeForSuburb("http://www.street-directory.com.au/vic/croydon_south","https://www.realestate.com.au/vic/croydon-south-3136/","Croydon South","croydon_south_houses.csv",None)
+configLog("Ringwood")
+scrapeForSuburb("http://www.street-directory.com.au/vic/ringwood","https://www.realestate.com.au/vic/ringwood-3134/","Ringwood","ringwood_houses.csv")
 
-scrapeFailedPropertyUrls("Croydon South","croydon_south_houses.csv")
+# scrapeFailedPropertyUrls("Croydon South","croydon_south_houses.csv")
 
-# scrapePropertyUrls([
-#   "https://www.realestate.com.au/property/6-tower-ct-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/5-tower-ct-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/3-tower-ct-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/8-tower-ct-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/2-tower-ct-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/7-tower-ct-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/1a-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/9-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/2-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/2b-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/8-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/4-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/6-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/10-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/2a-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/5-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/3-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/1-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/unit-2-2-waratah-ave-bayswater-north-vic-3153",
-#   "https://www.realestate.com.au/property/7a-waratah-ave-bayswater-north-vic-3153"
-# ],"bayswater_north_houses.csv")
+
