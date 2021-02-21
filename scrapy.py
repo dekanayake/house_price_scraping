@@ -23,6 +23,7 @@ from datetime import datetime
 import urllib.parse
 from itertools import permutations 
 from db import DB
+from shutil import copyfile
 
 
 def  configLog(suburbName):
@@ -132,7 +133,7 @@ def get_streets(url,user_agent,proxy,scrapingDB,update):
     streets = {}
     ignore_street = False
     start_from_street_enable = False
-    processingStreets = scrapingDB.getStreetsByStatus('processing') + scrapingDB.getStreetsByStatus('failed')
+    processingStreets = scrapingDB.getStreetsByStatus('processing') + scrapingDB.getStreetsByStatus('added') + scrapingDB.getStreetsByStatus('failed')
     for street_first_letter_url in parser.xpath('//div[@id="alphabet"]/a/@href'):
       response = requests.get(street_first_letter_url,headers={
         'User-Agent': get_user_agent(),
@@ -140,7 +141,7 @@ def get_streets(url,user_agent,proxy,scrapingDB,update):
       parser = fromstring(response.text)
       for street in parser.xpath('//div[@id="showhide"]/div[@id="suburbs_by_id"]/ul/li/a/text()'):
         if update and re.sub('\s+',' ',street) not in processingStreets:
-          logging.info('ignoring the street because it is already processed' + re.sub('\s+',' ',street))
+          logging.info('ignoring the street because it is already processed ' + re.sub('\s+',' ',street))
           continue
         logging.info(re.sub('\s+',' ',street))
         scrapingDB.insertStreet(re.sub('\s+',' ',street))
@@ -150,12 +151,7 @@ def get_streets(url,user_agent,proxy,scrapingDB,update):
         streets[street_name] = re.sub('\s+',' ',street)
     return streets
 
-   
 
-def get_mock_streets(url,user_agent,proxy):
-    streets = {}
-    streets["blazey-walk"] = "Blazey Walk"
-    return streets
 
 
 def get_properties_in_street(url,user_agent,proxy):
@@ -417,8 +413,11 @@ def get_property_details(url,proxy):
     wd.quit()
     return data_set
 
-
-
+def makeBackup(fileName):
+  dateTimePrefix  =  datetime.now().strftime("%m%d%Y%H%M%S")
+  backupFileName = os.path.splitext(fileName)[0] + "_backup_" + dateTimePrefix + ".csv"
+  copyfile(fileName, backupFileName)
+ 
 
 def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
   scrapingDB = DB(subrubName)
@@ -426,10 +425,13 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
       # response = requests.get(url,proxies={"http": proxy, "https": proxy},headers=headers)
       # print(response.json())
       suburbSaved = scrapingDB.getSuburub(subrubName)
+      processingStreets = scrapingDB.getStreetsByStatus('processing') + scrapingDB.getStreetsByStatus('added') + scrapingDB.getStreetsByStatus('failed')
       update = False
-      if (suburbSaved and suburbSaved['status'] != 'processed'):
+      if (suburbSaved and suburbSaved['status'] != 'processed' and  len(processingStreets) > 0):
+        logging.info('suburub '+ subrubName + ' is  not complete successfully in prvious job. Updating with non processed property records' )
         update = True
-      elif(suburbSaved  and suburbSaved['status'] == 'processed'):
+        makeBackup(outFileName)
+      elif(suburbSaved  and suburbSaved['status'] == 'processed' and len(processingStreets) == 0):
         logging.info('suburub '+ subrubName + ' is  already  processed' )
         return
       else:
@@ -523,7 +525,9 @@ def scrapeForSuburb(streetsUrl,realEstateSuburubBaseUrl,subrubName,outFileName):
               logging.error(e, exc_info=True)
           scrapingDB.updateStreet(street_name,'processed')
           scrapingDB.remove_properties(street_name)
-      scrapingDB.updateSuburb(subrubName,'processed')    
+      processingStreets = scrapingDB.getStreetsByStatus('processing') + scrapingDB.getStreetsByStatus('added') + scrapingDB.getStreetsByStatus('failed')
+      if len(processingStreets) == 0:    
+        scrapingDB.updateSuburb(subrubName,'processed')    
   except Exception as e:
       logging.error("Error occured")
       traceback.print_exc() 
@@ -657,9 +661,8 @@ def scrapeFailedPropertyUrls(subrubName,  outFileName):
     logging.error(e, exc_info=True)
 
 
-configLog("Ringwood")
-scrapeForSuburb("http://www.street-directory.com.au/vic/ringwood","https://www.realestate.com.au/vic/ringwood-3134/","Ringwood","ringwood_houses.csv")
-
-# scrapeFailedPropertyUrls("Croydon South","croydon_south_houses.csv")
+configLog("Ringwood North")
+scrapeForSuburb("http://www.street-directory.com.au/vic/ringwood-north","https://www.realestate.com.au/vic/ringwood-north-3134/","Ringwood North","ringwood_north_houses.csv")
+# scrapeFailedPropertyUrls("Ringwood North","ringwood_north_houses.csv")
 
 
