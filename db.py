@@ -26,7 +26,7 @@ class DB:
     def getStreetsByStatus(self,status):
         Street = Query()
         result = self.db.search((Street.type == 'street') & (Street.status == status))
-        return list(map(lambda street: street.street_name, result))
+        return list(map(lambda street: street['street_name'], result))
 
     def insert_property(self,street_name,property_url):
         self.db.insert({'type':'property','street_name': street_name, 'status': 'processing','url':property_url})
