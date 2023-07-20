@@ -55,8 +55,8 @@ user_agent_rotator_apple = UserAgent(software_names=software_names_apple, operat
 user_agent_rotator_windows = UserAgent(software_names=software_names_windows, operating_systems=operating_systems_windows,popularity=popularity,software_types=software_types,hardware_types=hardware_types, limit=100)
 user_agent_rotator_linux = UserAgent(software_names=software_names_linux, operating_systems=operating_systems_linux,popularity=popularity,software_types=software_types,hardware_types=hardware_types, limit=100)
 
-proxy = "socks5://dumindae%40gmail.com:Hiru%40Vertx88@ie.socks.nordhold.net:1080"
-http_proxy = "http://dumindae%40gmail.com:Hiru%40Vertx88@ie.socks.nordhold.net:1080"
+proxy = "{{proxy url}}"
+http_proxy = "{{proxy url}}"
 
 PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
 DRIVER_BIN = os.path.join(PROJECT_ROOT, "chromedriver.exe")
